@@ -7,14 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       project:
-        description: "Which firmware to build: 'onstepx' (mount controller) or 'shc' (SmartHandController)"
+        description: "Which firmware to build: 'onstepx' (mount controller), 'shc' (SmartHandController), or 'sws' (SmartWebServer)"
         required: false
         default: "onstepx"
       config_h:
         description: "Base64-encoded Config.h contents"
         required: true
       environment:
-        description: "PlatformIO env. OnStepX: esp32|teensy40|teensy41|blackpill_f411. SHC: shc_esp32|shc_teensy40|shc_teensy32."
+        description: "PlatformIO env. OnStepX: esp32|teensy40|teensy41|blackpill_f411. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
         required: true
         default: "esp32"
       request_id:
@@ -40,12 +40,13 @@ jobs:
       - name: Validate inputs
         run: |
           case "${{ inputs.project }}" in
-            ""|onstepx|shc) ;;
+            ""|onstepx|shc|sws) ;;
             *) echo "::error::unsupported project '${{ inputs.project }}'"; exit 1 ;;
           esac
           case "${{ inputs.environment }}" in
             esp32|teensy40|teensy41|blackpill_f411) ;;
             shc_esp32|shc_teensy40|shc_teensy32) ;;
+            sws_esp32|sws_esp8266) ;;
             *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
           esac
           # request_id must look like a UUID (loose check)
@@ -87,14 +88,21 @@ jobs:
           set -euo pipefail
           # Pick the upstream repo + local folder based on project.
           PROJECT="${PROJECT:-onstepx}"
-          if [ "$PROJECT" = "shc" ]; then
-            REPO="https://github.com/hjd1964/SmartHandController.git"
-            LOCAL="SmartHandController"
-          else
-            REPO="https://github.com/hjd1964/OnStepX.git"
-            LOCAL="OnStepX"
-          fi
-          rm -rf OnStepX SmartHandController
+          case "$PROJECT" in
+            shc)
+              REPO="https://github.com/hjd1964/SmartHandController.git"
+              LOCAL="SmartHandController"
+              ;;
+            sws)
+              REPO="https://github.com/hjd1964/SmartWebServer.git"
+              LOCAL="SmartWebServer"
+              ;;
+            *)
+              REPO="https://github.com/hjd1964/OnStepX.git"
+              LOCAL="OnStepX"
+              ;;
+          esac
+          rm -rf OnStepX SmartHandController SmartWebServer
           git clone "$REPO" "$LOCAL"
           cd "$LOCAL"
           echo "::group::Resolving ref '$ONSTEPX_REF'"
@@ -112,11 +120,11 @@ jobs:
         run: |
           set -euo pipefail
           PROJECT="${PROJECT:-onstepx}"
-          if [ "$PROJECT" = "shc" ]; then
-            TARGET="SmartHandController/Config.h"
-          else
-            TARGET="OnStepX/Config.h"
-          fi
+          case "$PROJECT" in
+            shc) TARGET="SmartHandController/Config.h" ;;
+            sws) TARGET="SmartWebServer/Config.h" ;;
+            *)   TARGET="OnStepX/Config.h" ;;
+          esac
           echo "$CONFIG_B64" | base64 -d > "$TARGET"
           echo "=== Config.h preview (first 30 lines) ==="
           head -n 30 "$TARGET" || true
@@ -129,10 +137,11 @@ jobs:
         run: |
           set -euo pipefail
           # PlatformIO's src_dir default is OnStepX (set in platformio.ini).
-          # For SHC builds, point it at SmartHandController/ via env override.
-          if [ "${PROJECT:-onstepx}" = "shc" ]; then
-            export PLATFORMIO_SRC_DIR=SmartHandController
-          fi
+          # For SHC/SWS builds, point it at the right folder via env override.
+          case "${PROJECT:-onstepx}" in
+            shc) export PLATFORMIO_SRC_DIR=SmartHandController ;;
+            sws) export PLATFORMIO_SRC_DIR=SmartWebServer ;;
+          esac
           pio run -e ${{ inputs.environment }}
 
       - name: Collect firmware artifacts
@@ -159,6 +168,9 @@ jobs:
               ;;
             teensy40|teensy41|shc_teensy40|shc_teensy32)
               cp "$BUILD_DIR/firmware.hex" "$OUT/firmware.hex"
+              ;;
+            sws_esp8266)
+              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
               ;;
             blackpill_f411)
               cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
