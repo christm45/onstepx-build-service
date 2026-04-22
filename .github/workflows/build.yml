@@ -154,7 +154,7 @@ jobs:
           BUILD_DIR=".pio/build/$ENV"
 
           case "$ENV" in
-            esp32|shc_esp32)
+            esp32|shc_esp32|sws_esp32)
               cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
               cp "$BUILD_DIR/bootloader.bin" "$OUT/bootloader.bin"
               cp "$BUILD_DIR/partitions.bin" "$OUT/partitions.bin"
