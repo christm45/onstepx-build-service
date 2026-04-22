@@ -1,23 +1,27 @@
-name: Build OnStepX
+name: Build OnStep firmware
 
-# IMPORTANT: run-name embeds the request_id so the Worker can find this run.
-run-name: "onstepx-build req=${{ inputs.request_id }} env=${{ inputs.environment }}"
+# run-name embeds the request_id so the Worker can find this run.
+run-name: "onstepx-build req=${{ inputs.request_id }} env=${{ inputs.environment }} project=${{ inputs.project }}"
 
 on:
   workflow_dispatch:
     inputs:
+      project:
+        description: "Which firmware to build: 'onstepx' (mount controller) or 'shc' (SmartHandController)"
+        required: false
+        default: "onstepx"
       config_h:
         description: "Base64-encoded Config.h contents"
         required: true
       environment:
-        description: "PlatformIO env: esp32 | teensy40 | teensy41 | blackpill_f411"
+        description: "PlatformIO env. OnStepX: esp32|teensy40|teensy41|blackpill_f411. SHC: shc_esp32|shc_teensy40|shc_teensy32."
         required: true
         default: "esp32"
       request_id:
         description: "Client-supplied UUID for correlation"
         required: true
       onstepx_ref:
-        description: "hjd1964/OnStepX branch / tag / commit SHA to build (default: main)"
+        description: "Source branch/tag/SHA (default 'main'). Applied to either hjd1964/OnStepX or hjd1964/SmartHandController depending on 'project'."
         required: false
         default: "main"
 
@@ -35,8 +39,13 @@ jobs:
 
       - name: Validate inputs
         run: |
+          case "${{ inputs.project }}" in
+            ""|onstepx|shc) ;;
+            *) echo "::error::unsupported project '${{ inputs.project }}'"; exit 1 ;;
+          esac
           case "${{ inputs.environment }}" in
             esp32|teensy40|teensy41|blackpill_f411) ;;
+            shc_esp32|shc_teensy40|shc_teensy32) ;;
             *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
           esac
           # request_id must look like a UUID (loose check)
@@ -70,37 +79,60 @@ jobs:
           restore-keys: |
             pio-${{ inputs.environment }}-
 
-      - name: Fetch upstream OnStepX at requested ref
+      - name: Fetch upstream source at requested ref
         env:
           ONSTEPX_REF: ${{ inputs.onstepx_ref }}
+          PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
-          rm -rf OnStepX
-          # Full clone so arbitrary branches / tags / commit SHAs all resolve.
-          git clone https://github.com/hjd1964/OnStepX.git OnStepX
-          cd OnStepX
+          # Pick the upstream repo + local folder based on project.
+          PROJECT="${PROJECT:-onstepx}"
+          if [ "$PROJECT" = "shc" ]; then
+            REPO="https://github.com/hjd1964/SmartHandController.git"
+            LOCAL="SmartHandController"
+          else
+            REPO="https://github.com/hjd1964/OnStepX.git"
+            LOCAL="OnStepX"
+          fi
+          rm -rf OnStepX SmartHandController
+          git clone "$REPO" "$LOCAL"
+          cd "$LOCAL"
           echo "::group::Resolving ref '$ONSTEPX_REF'"
           git checkout "$ONSTEPX_REF"
-          echo "::notice::Built against hjd1964/OnStepX @ $(git rev-parse HEAD) ($ONSTEPX_REF)"
+          echo "::notice::Built against $REPO @ $(git rev-parse HEAD) ($ONSTEPX_REF)"
           echo "::notice::Commit date: $(git log -1 --format=%cI HEAD)"
           echo "::endgroup::"
           cd ..
-          rm -f OnStepX/.gitattributes OnStepX/.gitignore OnStepX/LICENSE OnStepX/README.md || true
+          rm -f "$LOCAL/.gitattributes" "$LOCAL/.gitignore" "$LOCAL/LICENSE" "$LOCAL/README.md" || true
 
       - name: Write user-supplied Config.h
         env:
           CONFIG_B64: ${{ inputs.config_h }}
+          PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
-          echo "$CONFIG_B64" | base64 -d > OnStepX/Config.h
+          PROJECT="${PROJECT:-onstepx}"
+          if [ "$PROJECT" = "shc" ]; then
+            TARGET="SmartHandController/Config.h"
+          else
+            TARGET="OnStepX/Config.h"
+          fi
+          echo "$CONFIG_B64" | base64 -d > "$TARGET"
           echo "=== Config.h preview (first 30 lines) ==="
-          head -n 30 OnStepX/Config.h || true
-          wc -c OnStepX/Config.h
+          head -n 30 "$TARGET" || true
+          wc -c "$TARGET"
 
       - name: PlatformIO build
         id: build
+        env:
+          PROJECT: ${{ inputs.project }}
         run: |
           set -euo pipefail
+          # PlatformIO's src_dir default is OnStepX (set in platformio.ini).
+          # For SHC builds, point it at SmartHandController/ via env override.
+          if [ "${PROJECT:-onstepx}" = "shc" ]; then
+            export PLATFORMIO_SRC_DIR=SmartHandController
+          fi
           pio run -e ${{ inputs.environment }}
 
       - name: Collect firmware artifacts
@@ -113,7 +145,7 @@ jobs:
           BUILD_DIR=".pio/build/$ENV"
 
           case "$ENV" in
-            esp32)
+            esp32|shc_esp32)
               cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
               cp "$BUILD_DIR/bootloader.bin" "$OUT/bootloader.bin"
               cp "$BUILD_DIR/partitions.bin" "$OUT/partitions.bin"
@@ -125,7 +157,7 @@ jobs:
                 cp "$BUILD_DIR/merged-firmware.bin" "$OUT/merged-firmware.bin"
               fi
               ;;
-            teensy40|teensy41)
+            teensy40|teensy41|shc_teensy40|shc_teensy32)
               cp "$BUILD_DIR/firmware.hex" "$OUT/firmware.hex"
               ;;
             blackpill_f411)
