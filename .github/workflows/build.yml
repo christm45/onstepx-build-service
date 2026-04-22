@@ -142,7 +142,9 @@ jobs:
             shc) export PLATFORMIO_SRC_DIR=SmartHandController ;;
             sws) export PLATFORMIO_SRC_DIR=SmartWebServer ;;
           esac
-          pio run -e ${{ inputs.environment }}
+          # Tee pio output to build.log so the collect step can scrape the
+          # RAM:/Flash: size lines for the manifest.
+          pio run -e ${{ inputs.environment }} 2>&1 | tee build.log
 
       - name: Collect firmware artifacts
         id: collect
@@ -177,11 +179,29 @@ jobs:
               ;;
           esac
 
+          # Scrape RAM/Flash usage from the PlatformIO build log so the
+          # frontend can show a size bar after compile. Lines look like:
+          #   RAM:   [=         ]  10.8% (used 35380 bytes from 327680 bytes)
+          #   Flash: [==        ]  15.2% (used 477813 bytes from 3145728 bytes)
+          RAM_LINE=$(grep -E '^RAM:' build.log | tail -1 || true)
+          FLASH_LINE=$(grep -E '^Flash:' build.log | tail -1 || true)
+          extract() { # $1: "RAM"|"Flash"; $2: "used"|"total"
+            echo "$3" | sed -nE "s/.*\(used ([0-9]+) bytes from ([0-9]+) bytes\).*/\1 \2/p" | awk -v W="$2" '{print (W=="used"?$1:$2)}'
+          }
+          RAM_USED=$(echo "$RAM_LINE" | sed -nE 's/.*\(used ([0-9]+) bytes.*/\1/p')
+          RAM_TOTAL=$(echo "$RAM_LINE" | sed -nE 's/.*from ([0-9]+) bytes\).*/\1/p')
+          FLASH_USED=$(echo "$FLASH_LINE" | sed -nE 's/.*\(used ([0-9]+) bytes.*/\1/p')
+          FLASH_TOTAL=$(echo "$FLASH_LINE" | sed -nE 's/.*from ([0-9]+) bytes\).*/\1/p')
+
           cat > "$OUT/manifest.json" <<EOF
           {
             "request_id": "${{ inputs.request_id }}",
             "environment": "$ENV",
             "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "ram_used": ${RAM_USED:-null},
+            "ram_total": ${RAM_TOTAL:-null},
+            "flash_used": ${FLASH_USED:-null},
+            "flash_total": ${FLASH_TOTAL:-null},
             "files": $(ls "$OUT" | grep -v manifest.json | jq -R . | jq -s .)
           }
           EOF
