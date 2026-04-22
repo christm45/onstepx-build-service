@@ -9,9 +9,12 @@ Simplifies the browser flash step from "3 files at 3 addresses" to
 """
 Import("env")  # noqa: F821 — provided by PlatformIO
 
+# Use PlatformIO's bundled Python interpreter and invoke esptool as a module.
+# Calling `esptool.py` directly fails on some runners ("Permission denied")
+# because the script isn't on PATH with an exec bit.
 env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", [
     " ".join([
-        "esptool.py --chip esp32 merge_bin",
+        "$PYTHONEXE -m esptool --chip esp32 merge_bin",
         "-o $BUILD_DIR/merged-firmware.bin",
         "--flash_mode dio --flash_freq 40m --flash_size 4MB",
         "0x1000 $BUILD_DIR/bootloader.bin",
