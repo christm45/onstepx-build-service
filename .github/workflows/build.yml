@@ -1,0 +1,155 @@
+name: Build OnStepX
+
+# IMPORTANT: run-name embeds the request_id so the Worker can find this run.
+run-name: "onstepx-build req=${{ inputs.request_id }} env=${{ inputs.environment }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_h:
+        description: "Base64-encoded Config.h contents"
+        required: true
+      environment:
+        description: "PlatformIO env: esp32 | teensy40 | teensy41 | blackpill_f411"
+        required: true
+        default: "esp32"
+      request_id:
+        description: "Client-supplied UUID for correlation"
+        required: true
+      onstepx_ref:
+        description: "hjd1964/OnStepX branch / tag / commit SHA to build (default: main)"
+        required: false
+        default: "main"
+
+concurrency:
+  group: "onstepx-build-${{ inputs.request_id }}"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout build service
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          case "${{ inputs.environment }}" in
+            esp32|teensy40|teensy41|blackpill_f411) ;;
+            *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
+          esac
+          # request_id must look like a UUID (loose check)
+          if ! [[ "${{ inputs.request_id }}" =~ ^[0-9a-fA-F-]{8,64}$ ]]; then
+            echo "::error::request_id has invalid format"; exit 1
+          fi
+          # onstepx_ref: conservative charset — letters/digits and . _ / -
+          REF="${{ inputs.onstepx_ref }}"
+          if ! [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,64}$ ]]; then
+            echo "::error::onstepx_ref '$REF' contains disallowed characters"; exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio
+
+      - name: Cache PlatformIO toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ inputs.environment }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-${{ inputs.environment }}-
+
+      - name: Fetch upstream OnStepX at requested ref
+        env:
+          ONSTEPX_REF: ${{ inputs.onstepx_ref }}
+        run: |
+          set -euo pipefail
+          rm -rf OnStepX
+          # Full clone so arbitrary branches / tags / commit SHAs all resolve.
+          git clone https://github.com/hjd1964/OnStepX.git OnStepX
+          cd OnStepX
+          echo "::group::Resolving ref '$ONSTEPX_REF'"
+          git checkout "$ONSTEPX_REF"
+          echo "::notice::Built against hjd1964/OnStepX @ $(git rev-parse HEAD) ($ONSTEPX_REF)"
+          echo "::notice::Commit date: $(git log -1 --format=%cI HEAD)"
+          echo "::endgroup::"
+          cd ..
+          rm -f OnStepX/.gitattributes OnStepX/.gitignore OnStepX/LICENSE OnStepX/README.md || true
+
+      - name: Write user-supplied Config.h
+        env:
+          CONFIG_B64: ${{ inputs.config_h }}
+        run: |
+          set -euo pipefail
+          echo "$CONFIG_B64" | base64 -d > OnStepX/Config.h
+          echo "=== Config.h preview (first 30 lines) ==="
+          head -n 30 OnStepX/Config.h || true
+          wc -c OnStepX/Config.h
+
+      - name: PlatformIO build
+        id: build
+        run: |
+          set -euo pipefail
+          pio run -e ${{ inputs.environment }}
+
+      - name: Collect firmware artifacts
+        id: collect
+        run: |
+          set -euo pipefail
+          ENV="${{ inputs.environment }}"
+          OUT="dist"
+          mkdir -p "$OUT"
+          BUILD_DIR=".pio/build/$ENV"
+
+          case "$ENV" in
+            esp32)
+              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
+              cp "$BUILD_DIR/bootloader.bin" "$OUT/bootloader.bin"
+              cp "$BUILD_DIR/partitions.bin" "$OUT/partitions.bin"
+              # boot_app0.bin lives in the framework package; esptool-js needs it at 0xe000
+              BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32 -name boot_app0.bin | head -n 1)
+              if [ -n "$BOOT_APP0" ]; then cp "$BOOT_APP0" "$OUT/boot_app0.bin"; fi
+              # merge_bin.py post-script produces this — flash as one file at 0x0.
+              if [ -f "$BUILD_DIR/merged-firmware.bin" ]; then
+                cp "$BUILD_DIR/merged-firmware.bin" "$OUT/merged-firmware.bin"
+              fi
+              ;;
+            teensy40|teensy41)
+              cp "$BUILD_DIR/firmware.hex" "$OUT/firmware.hex"
+              ;;
+            blackpill_f411)
+              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
+              ;;
+          esac
+
+          cat > "$OUT/manifest.json" <<EOF
+          {
+            "request_id": "${{ inputs.request_id }}",
+            "environment": "$ENV",
+            "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "files": $(ls "$OUT" | grep -v manifest.json | jq -R . | jq -s .)
+          }
+          EOF
+          echo "=== manifest ==="
+          cat "$OUT/manifest.json"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # Name includes request_id so Worker can match even if it can't enumerate by run id.
+          name: firmware-${{ inputs.request_id }}
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
