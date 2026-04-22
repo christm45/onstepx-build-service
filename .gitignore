@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+OnStepX/
+!OnStepX/.gitkeep
+dist/
+*.log
