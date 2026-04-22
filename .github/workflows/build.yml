@@ -159,11 +159,18 @@ jobs:
             if [ -z "$HEADER" ]; then
               echo "::error::unknown plugin '$plugin' — allowed: ${!PLUGIN_HEADERS[*]}"; exit 1
             fi
-            if [ ! -d "plugins-src/$plugin" ]; then
-              echo "::error::plugin directory plugins-src/$plugin missing in OnStepX-Plugins repo"; exit 1
+            # Some OnStepX branches (notably E4) already ship the plugin source
+            # tree under src/plugins/<name>/. If it's already there, leave it
+            # alone — copying a second one on top would produce a nested
+            # src/plugins/website/website/ path and break relative #includes.
+            if [ -d "OnStepX/src/plugins/$plugin" ]; then
+              echo "::notice::Plugin '$plugin' already present in OnStepX source tree (slot $SLOT) — reusing in place"
+            elif [ -d "plugins-src/$plugin" ]; then
+              echo "::notice::Bundling plugin '$plugin' from OnStepX-Plugins in slot $SLOT"
+              cp -r "plugins-src/$plugin" "OnStepX/src/plugins/$plugin"
+            else
+              echo "::error::plugin directory plugins-src/$plugin missing in OnStepX-Plugins repo AND not in OnStepX source tree"; exit 1
             fi
-            echo "::notice::Bundling plugin '$plugin' in slot $SLOT"
-            cp -r "plugins-src/$plugin" "OnStepX/src/plugins/$plugin"
             {
               echo "#define PLUGIN${SLOT}                   ${plugin}"
               echo "#include \"${HEADER}\""
