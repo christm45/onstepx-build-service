@@ -10,12 +10,14 @@ uploads the firmware as a workflow artifact that the browser then downloads.
 
 ## Supported build environments
 
-| PlatformIO env    | MCU           | Typical OnStepX pinmaps         |
-| ----------------- | ------------- | ------------------------------- |
-| `esp32`           | ESP32         | MaxESP3, MaxESP4, FYSETC_E4     |
-| `teensy40`        | Teensy 4.0    | MaxPCB (4.0 variants), CNC3     |
-| `teensy41`        | Teensy 4.1    | **MaxPCB4**, MaxPCB3            |
-| `blackpill_f411`  | STM32F411CE   | **MaxSTM3**, SKR_PRO (partial)  |
+| PlatformIO env    | MCU           | Typical OnStepX pinmaps              |
+| ----------------- | ------------- | ------------------------------------ |
+| `esp32`           | ESP32         | MaxESP3, MaxESP4, FYSETC_E4          |
+| `teensy32`        | Teensy 3.2    | MiniPCB, MiniPCB13, MiniPCB2         |
+| `teensy40`        | Teensy 4.0    | MaxPCB (4.0 variants), CNC3          |
+| `teensy41`        | Teensy 4.1    | **MaxPCB4**, MaxPCB3                 |
+| `blackpill_f411`  | STM32F411CE   | **MaxSTM3**                          |
+| `skr_pro_f407`    | STM32F407ZGT6 | **BTT_SKR_PRO** (V1.2)               |
 
 The pinmap is chosen inside `Config.h` by the user — it only needs to be
 compatible with the PlatformIO env the workflow is dispatched against.

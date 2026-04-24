@@ -14,7 +14,7 @@ on:
         description: "Base64-encoded Config.h contents"
         required: true
       environment:
-        description: "PlatformIO env. OnStepX: esp32|teensy40|teensy41|blackpill_f411. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
+        description: "PlatformIO env. OnStepX: esp32|teensy32|teensy40|teensy41|blackpill_f411|skr_pro_f407. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
         required: true
         default: "esp32"
       request_id:
@@ -48,7 +48,7 @@ jobs:
             *) echo "::error::unsupported project '${{ inputs.project }}'"; exit 1 ;;
           esac
           case "${{ inputs.environment }}" in
-            esp32|teensy40|teensy41|blackpill_f411) ;;
+            esp32|teensy32|teensy40|teensy41|blackpill_f411|skr_pro_f407) ;;
             shc_esp32|shc_teensy40|shc_teensy32) ;;
             sws_esp32|sws_esp8266) ;;
             *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
