@@ -1,0 +1,33 @@
+{
+  "build": {
+    "core": "stm32",
+    "cpu": "cortex-m4",
+    "extra_flags": "-DSTM32F446xx",
+    "f_cpu": "180000000L",
+    "framework_extra_flags": {
+      "arduino": "-D__STM32F4__ -DARDUINO_FYSETC_S6 -DARDUINO_ARCH_STM32F4"
+    },
+    "hwids": [
+      ["0x0483", "0xDF11"]
+    ],
+    "ldscript": "ldscript.ld",
+    "mcu": "stm32f446vet6",
+    "variant": "STM32F4xx/F446V(C-E)T"
+  },
+  "debug": {
+    "default_tools": ["stlink"],
+    "jlink_device": "STM32F446VE",
+    "openocd_target": "stm32f4x",
+    "svd_path": "STM32F446x.svd"
+  },
+  "frameworks": ["arduino", "cmsis", "stm32cube"],
+  "name": "FYSETC S6 V1.2 / V2.0 (STM32F446VE)",
+  "upload": {
+    "maximum_ram_size": 131072,
+    "maximum_size": 524288,
+    "protocol": "dfu",
+    "protocols": ["dfu", "stlink", "jlink"]
+  },
+  "url": "https://github.com/FYSETC/FYSETC-S6",
+  "vendor": "FYSETC"
+}
