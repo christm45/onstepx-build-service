@@ -14,7 +14,7 @@ on:
         description: "Base64-encoded Config.h contents"
         required: true
       environment:
-        description: "PlatformIO env. OnStepX: esp32|teensy32|teensy40|teensy41|blackpill_f411|skr_pro_f407. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
+        description: "PlatformIO env. OnStepX: esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
         required: true
         default: "esp32"
       request_id:
@@ -48,7 +48,7 @@ jobs:
             *) echo "::error::unsupported project '${{ inputs.project }}'"; exit 1 ;;
           esac
           case "${{ inputs.environment }}" in
-            esp32|teensy32|teensy40|teensy41|blackpill_f411|skr_pro_f407) ;;
+            esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407) ;;
             shc_esp32|shc_teensy40|shc_teensy32) ;;
             sws_esp32|sws_esp8266) ;;
             *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
@@ -123,6 +123,7 @@ jobs:
           rm -f "$LOCAL/.gitattributes" "$LOCAL/.gitignore" "$LOCAL/LICENSE" "$LOCAL/README.md" || true
 
       - name: Bundle OnStepX plugins
+        id: plugins
         if: ${{ inputs.plugins != '' && (inputs.project == 'onstepx' || inputs.project == '') }}
         env:
           PLUGINS: ${{ inputs.plugins }}
@@ -194,6 +195,18 @@ jobs:
           echo "=== Generated Plugins.config.h ==="
           cat "$PCFG"
 
+          # Emit a normalised, comma-separated list of just the plugins we
+          # actually bundled, for the collect-step to drop into manifest.json
+          # and for the configurator's compile log to display.
+          BUNDLED=""
+          IFS=',' read -ra SELECTED <<< "$PLUGINS"
+          for plugin in "${SELECTED[@]}"; do
+            plugin=$(echo "$plugin" | xargs)
+            [ -z "$plugin" ] && continue
+            BUNDLED="${BUNDLED:+${BUNDLED},}${plugin}"
+          done
+          echo "bundled=$BUNDLED" >> "$GITHUB_OUTPUT"
+
       - name: Write user-supplied Config.h
         env:
           CONFIG_B64: ${{ inputs.config_h }}
@@ -229,6 +242,8 @@ jobs:
 
       - name: Collect firmware artifacts
         id: collect
+        env:
+          BUNDLED_PLUGINS: ${{ steps.plugins.outputs.bundled }}
         run: |
           set -euo pipefail
           ENV="${{ inputs.environment }}"
@@ -258,7 +273,26 @@ jobs:
             blackpill_f411)
               cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
               ;;
+            f446_fysetc_s6)
+              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
+              ;;
           esac
+
+          # Drop the generated Plugins.config.h into the artifact (when
+          # plugins were bundled) so the configurator can show users exactly
+          # which plugin slots got wired up — without them having to dig
+          # through the GitHub Actions log.
+          if [ -f "OnStepX/src/plugins/Plugins.config.h" ] && [ -n "${BUNDLED_PLUGINS:-}" ]; then
+            cp "OnStepX/src/plugins/Plugins.config.h" "$OUT/Plugins.config.h"
+          fi
+
+          # Build a JSON array of the bundled plugin names for manifest.json.
+          # Empty list when none were bundled (stock build).
+          if [ -n "${BUNDLED_PLUGINS:-}" ]; then
+            PLUGINS_JSON=$(echo "$BUNDLED_PLUGINS" | tr ',' '\n' | jq -R . | jq -s .)
+          else
+            PLUGINS_JSON="[]"
+          fi
 
           # Scrape RAM/Flash usage from the PlatformIO build log so the
           # frontend can show a size bar after compile. Lines look like:
@@ -283,6 +317,7 @@ jobs:
             "ram_total": ${RAM_TOTAL:-null},
             "flash_used": ${FLASH_USED:-null},
             "flash_total": ${FLASH_TOTAL:-null},
+            "plugins": ${PLUGINS_JSON},
             "files": $(ls "$OUT" | grep -v manifest.json | jq -R . | jq -s .)
           }
           EOF
