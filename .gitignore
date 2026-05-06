@@ -2,5 +2,7 @@
 .vscode/
 OnStepX/
 !OnStepX/.gitkeep
+SmartWebServer/
+SmartHandController/
 dist/
 *.log
