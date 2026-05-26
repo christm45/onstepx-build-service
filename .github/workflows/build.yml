@@ -122,6 +122,22 @@ jobs:
           cd ..
           rm -f "$LOCAL/.gitattributes" "$LOCAL/.gitignore" "$LOCAL/LICENSE" "$LOCAL/README.md" || true
 
+          # Workaround: upstream SmartHandController/src/Validate.h still rejects
+          # DISPLAY_LANGUAGE > 6, but Locales.h defines L_ro = 7 and both
+          # Strings_ro.h and the Locale.h include block already ship. Bump the
+          # range check so Romanian (L_ro) compiles. Targets ONLY the
+          # DISPLAY_LANGUAGE guard — DISPLAY_OLED also uses "> 6" and must be
+          # left alone. Idempotent: once upstream widens the range itself, the
+          # "> 6" text no longer matches and this becomes a harmless no-op.
+          if [ "$PROJECT" = "shc" ] && [ -f SmartHandController/src/Validate.h ]; then
+            if grep -q 'DISPLAY_LANGUAGE > 6' SmartHandController/src/Validate.h; then
+              sed -i 's/DISPLAY_LANGUAGE > 6/DISPLAY_LANGUAGE > 7/' SmartHandController/src/Validate.h
+              echo "::notice::Patched SHC Validate.h DISPLAY_LANGUAGE range 6 -> 7 (enables L_ro until upstream fixes it)"
+            else
+              echo "::notice::SHC Validate.h no longer uses 'DISPLAY_LANGUAGE > 6' — upstream likely fixed it; no patch applied"
+            fi
+          fi
+
       - name: Bundle OnStepX plugins
         id: plugins
         if: ${{ inputs.plugins != '' && (inputs.project == 'onstepx' || inputs.project == '') }}
