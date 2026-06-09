@@ -236,6 +236,26 @@ jobs:
             *)   TARGET="OnStepX/Config.h" ;;
           esac
           echo "$CONFIG_B64" | base64 -d > "$TARGET"
+
+          # Sanitize obsolete configuration macros (OnStepX project only).
+          # Upstream OnStepX main now hard-#errors in src/Validate.h on macros
+          # that older configurator builds still emit:
+          #   - LIMIT_STRICT : #error on mere #ifdef (even "#define LIMIT_STRICT OFF"
+          #                    trips it), so the whole line must go.
+          #   - PARK_STRICT  : #error only when ON; stripping the line entirely is
+          #                    safe because the firmware's Config.defaults.h supplies
+          #                    the replacement startup-authority defaults.
+          # Idempotent: if the config doesn't define them, the greps no-op. Once
+          # the configurator stops emitting them this becomes a harmless no-op too.
+          if [ "$PROJECT" = "onstepx" ]; then
+            for OBS in LIMIT_STRICT PARK_STRICT; do
+              if grep -qE "^[[:space:]]*#[[:space:]]*define[[:space:]]+${OBS}([[:space:]]|$)" "$TARGET"; then
+                sed -i -E "/^[[:space:]]*#[[:space:]]*define[[:space:]]+${OBS}([[:space:]]|$)/d" "$TARGET"
+                echo "::notice::Stripped obsolete macro ${OBS} from user Config.h (upstream OnStepX Validate.h rejects it)"
+              fi
+            done
+          fi
+
           echo "=== Config.h preview (first 30 lines) ==="
           head -n 30 "$TARGET" || true
           wc -c "$TARGET"
