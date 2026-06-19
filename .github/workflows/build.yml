@@ -254,6 +254,31 @@ jobs:
                 echo "::notice::Stripped obsolete macro ${OBS} from user Config.h (upstream OnStepX Validate.h rejects it)"
               fi
             done
+
+            # Board-aware value corrections for FYSETC_E4. The configurator's
+            # E4 path overlays Howard's Config.h from the OnStepX *E4* branch,
+            # but the build compiles against *main*, whose Pins.FYSETC_E4.h has
+            # diverged. These option values pass on the E4 branch but hard-#error
+            # in main's src/pinmaps/Validate.h:
+            #   - SERIAL_B_BAUD_DEFAULT: main's FYSETC_E4 pinmap defines no
+            #     SERIAL_B port, so Validate.h (line ~12) requires this to be
+            #     OFF. The form path also emits a non-OFF baud here.
+            #   - STATUS_BUZZER / STATUS_LED: main's pinmap maps both
+            #     STATUS_LED_PIN and STATUS_BUZZER_PIN to AUX8_PIN (GPIO13), so
+            #     enabling either claims AUX8 and Validate.h (line ~205) #errors
+            #     if the other is also on. Force BOTH OFF to avoid the shared-pin
+            #     conflict entirely (the FYSETC E4 has no onboard status LED or
+            #     buzzer wired by default anyway). Rewrites the value in place,
+            #     preserving the trailing comment; idempotent if already OFF.
+            #     Scoped to FYSETC_E4 so no other board is affected.
+            if grep -qE "^[[:space:]]*#[[:space:]]*define[[:space:]]+PINMAP[[:space:]]+FYSETC_E4([[:space:]]|$)" "$TARGET"; then
+              for FORCE in SERIAL_B_BAUD_DEFAULT STATUS_BUZZER STATUS_LED; do
+                if grep -qE "^[[:space:]]*#[[:space:]]*define[[:space:]]+${FORCE}[[:space:]]+[^/[:space:]]" "$TARGET"; then
+                  sed -i -E "s|^([[:space:]]*#[[:space:]]*define[[:space:]]+${FORCE}[[:space:]]+)[^/[:space:]]+|\1OFF|" "$TARGET"
+                  echo "::notice::Forced ${FORCE} OFF for FYSETC_E4 (main-branch pinmap conflict)"
+                fi
+              done
+            fi
           fi
 
           echo "=== Config.h preview (first 30 lines) ==="
