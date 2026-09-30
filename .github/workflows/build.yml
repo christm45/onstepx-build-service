@@ -285,6 +285,39 @@ jobs:
           head -n 30 "$TARGET" || true
           wc -c "$TARGET"
 
+      - name: Apply user extended settings to SWS Extended.config.h
+        if: ${{ inputs.project == 'sws' }}
+        run: |
+          set -euo pipefail
+          # The user's Config.h carries the extended-network block (DEBUG,
+          # NV_WIPE, PASSWORD_DEFAULT, AP_*, STA_*, MAC, ...), but upstream
+          # Extended.config.h re-#defines every one of those unconditionally
+          # AFTER Config.h's own defines (Config.h includes Extended.config.h
+          # at its end, and src/Pages.h includes it a second time) -- so the
+          # compiler would take upstream's defaults and silently discard the
+          # user's values (e.g. STA_ENABLED stayed false no matter what the
+          # configurator said). Fix: for each macro upstream's
+          # Extended.config.h defines, re-apply the user's value from their
+          # Config.h by appending it at the end of Extended.config.h, so it
+          # wins in every translation unit. Macros the user didn't set keep
+          # upstream's value, and future upstream additions keep working.
+          USER_CFG="SmartWebServer/Config.h"
+          EXT="SmartWebServer/Extended.config.h"
+          NAMES=$(grep -E '^[[:space:]]*#[[:space:]]*define[[:space:]]+[A-Za-z0-9_]+' "$EXT" | sed -E 's/^[[:space:]]*#[[:space:]]*define[[:space:]]+([A-Za-z0-9_]+).*/\1/')
+          APPLIED=0
+          {
+            echo ""
+            echo "/* ---- user overrides from the configurator Config.h (applied by onstepx-build-service) ---- */"
+            for name in $NAMES; do
+              line=$(grep -E "^[[:space:]]*#[[:space:]]*define[[:space:]]+${name}([[:space:]]|$)" "$USER_CFG" | tr -d '\r' | head -n 1 || true)
+              if [ -n "$line" ]; then
+                echo "$line"
+                APPLIED=$((APPLIED + 1))
+              fi
+            done
+          } >> "$EXT"
+          echo "::notice::Applied ${APPLIED} user extended setting(s) to SmartWebServer/Extended.config.h"
+
       - name: PlatformIO build
         id: build
         env:
