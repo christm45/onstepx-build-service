@@ -274,18 +274,19 @@ jobs:
             # Board-aware value corrections for FYSETC_E4. The configurator's
             # E4 path overlays Howard's Config.h from the OnStepX *E4* branch,
             # but the build compiles against *main*, whose Pins.FYSETC_E4.h has
-            # diverged. These option values pass on the E4 branch but hard-#error
-            # in main's src/pinmaps/Validate.h:
+            # diverged. These option values were right for the E4 branch but not
+            # for main's pinmap:
             #   - SERIAL_B_BAUD_DEFAULT: main's FYSETC_E4 pinmap defines no
-            #     SERIAL_B port, so Validate.h (line ~12) requires this to be
-            #     OFF. The form path also emits a non-OFF baud here.
-            #   - STATUS_BUZZER / STATUS_LED: main's pinmap maps both
-            #     STATUS_LED_PIN and STATUS_BUZZER_PIN to AUX8_PIN (GPIO13), so
-            #     enabling either claims AUX8 and Validate.h (line ~205) #errors
-            #     if the other is also on. Force BOTH OFF to avoid the shared-pin
-            #     conflict entirely (the FYSETC E4 has no onboard status LED or
-            #     buzzer wired by default anyway). Rewrites the value in place,
-            #     preserving the trailing comment; idempotent if already OFF.
+            #     SERIAL_B port, so src/pinmaps/Validate.h (line ~12) #errors
+            #     unless this is OFF. The form path also emits a non-OFF baud here.
+            #   - STATUS_BUZZER / STATUS_LED: not a compile error (upstream
+            #     Validate.h never rejects STATUS_LED + STATUS_BUZZER together),
+            #     but main's pinmap maps both STATUS_LED_PIN and STATUS_BUZZER_PIN
+            #     to AUX8_PIN (GPIO13), so at runtime the LED blinking and the
+            #     buzzer tone drive the same GPIO and fight each other. Force BOTH
+            #     OFF (the FYSETC E4 has no onboard status LED or buzzer wired by
+            #     default anyway). Rewrites the value in place, preserving the
+            #     trailing comment; idempotent if already OFF.
             #     Scoped to FYSETC_E4 so no other board is affected.
             if grep -qE "^[[:space:]]*#[[:space:]]*define[[:space:]]+PINMAP[[:space:]]+FYSETC_E4([[:space:]]|$)" "$TARGET"; then
               for FORCE in SERIAL_B_BAUD_DEFAULT STATUS_BUZZER STATUS_LED; do
