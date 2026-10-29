@@ -33,6 +33,12 @@ concurrency:
   group: "onstepx-build-${{ inputs.request_id }}"
   cancel-in-progress: false
 
+# Least privilege for GITHUB_TOKEN. checkout only needs to read this repo;
+# actions/cache and actions/upload-artifact authenticate with the runner's own
+# ACTIONS_RUNTIME_TOKEN and need no extra scopes. Nothing here writes back.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,30 +46,40 @@ jobs:
     steps:
       - name: Checkout build service
         uses: actions/checkout@v6
+        with:
+          # Nothing pushes back; don't leave the token in .git/config where the
+          # (user-influenced) build could read it.
+          persist-credentials: false
 
       - name: Validate inputs
+        # Inputs reach the script through env, never ${{ }}-interpolated into
+        # the script body, so a crafted value can't inject shell.
+        env:
+          PROJECT: ${{ inputs.project }}
+          PIO_ENV: ${{ inputs.environment }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REF: ${{ inputs.onstepx_ref }}
+          PLG: ${{ inputs.plugins }}
         run: |
-          case "${{ inputs.project }}" in
+          case "$PROJECT" in
             ""|onstepx|shc|sws) ;;
-            *) echo "::error::unsupported project '${{ inputs.project }}'"; exit 1 ;;
+            *) echo "::error::unsupported project '$PROJECT'"; exit 1 ;;
           esac
-          case "${{ inputs.environment }}" in
+          case "$PIO_ENV" in
             esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407) ;;
             shc_esp32|shc_teensy40|shc_teensy32) ;;
             sws_esp32|sws_esp8266) ;;
-            *) echo "::error::unsupported environment '${{ inputs.environment }}'"; exit 1 ;;
+            *) echo "::error::unsupported environment '$PIO_ENV'"; exit 1 ;;
           esac
           # request_id must look like a UUID (loose check)
-          if ! [[ "${{ inputs.request_id }}" =~ ^[0-9a-fA-F-]{8,64}$ ]]; then
+          if ! [[ "$REQUEST_ID" =~ ^[0-9a-fA-F-]{8,64}$ ]]; then
             echo "::error::request_id has invalid format"; exit 1
           fi
           # onstepx_ref: conservative charset — letters/digits and . _ / -
-          REF="${{ inputs.onstepx_ref }}"
           if ! [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,64}$ ]]; then
             echo "::error::onstepx_ref '$REF' contains disallowed characters"; exit 1
           fi
           # plugins: conservative charset — letters/digits and commas, ≤200 chars
-          PLG="${{ inputs.plugins }}"
           if [ -n "$PLG" ] && ! [[ "$PLG" =~ ^[A-Za-z0-9_,]{1,200}$ ]]; then
             echo "::error::plugins list contains disallowed characters"; exit 1
           fi
@@ -281,9 +297,10 @@ jobs:
             fi
           fi
 
-          echo "=== Config.h preview (first 30 lines) ==="
-          head -n 30 "$TARGET" || true
-          wc -c "$TARGET"
+          # No content preview: this repo's run logs are public and Config.h
+          # carries WiFi SSIDs/passwords. Size + line count is enough to spot
+          # an empty or truncated upload.
+          echo "=== Config.h written: $(wc -c < "$TARGET") bytes, $(wc -l < "$TARGET") lines ==="
 
       - name: Apply user extended settings to SWS Extended.config.h
         if: ${{ inputs.project == 'sws' }}
@@ -322,6 +339,7 @@ jobs:
         id: build
         env:
           PROJECT: ${{ inputs.project }}
+          PIO_ENV: ${{ inputs.environment }}
         run: |
           set -euo pipefail
           # PlatformIO's src_dir default is OnStepX (set in platformio.ini).
@@ -332,15 +350,17 @@ jobs:
           esac
           # Tee pio output to build.log so the collect step can scrape the
           # RAM:/Flash: size lines for the manifest.
-          pio run -e ${{ inputs.environment }} 2>&1 | tee build.log
+          pio run -e "$PIO_ENV" 2>&1 | tee build.log
 
       - name: Collect firmware artifacts
         id: collect
         env:
           BUNDLED_PLUGINS: ${{ steps.plugins.outputs.bundled }}
+          PIO_ENV: ${{ inputs.environment }}
+          REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
-          ENV="${{ inputs.environment }}"
+          ENV="$PIO_ENV"
           OUT="dist"
           mkdir -p "$OUT"
           BUILD_DIR=".pio/build/$ENV"
@@ -358,19 +378,23 @@ jobs:
                 cp "$BUILD_DIR/merged-firmware.bin" "$OUT/merged-firmware.bin"
               fi
               ;;
-            teensy40|teensy41|shc_teensy40|shc_teensy32)
+            teensy32|teensy40|teensy41|shc_teensy40|shc_teensy32)
               cp "$BUILD_DIR/firmware.hex" "$OUT/firmware.hex"
               ;;
-            sws_esp8266)
+            sws_esp8266|blackpill_f411|f446_fysetc_s6|skr_pro_f407)
               cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
               ;;
-            blackpill_f411)
-              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
-              ;;
-            f446_fysetc_s6)
-              cp "$BUILD_DIR/firmware.bin" "$OUT/firmware.bin"
+            *)
+              # Every env in platformio.ini must have a branch above — an env
+              # missing here used to "succeed" with only manifest.json.
+              echo "::error::no artifact-collection rule for env '$ENV' — add it to this case"; exit 1
               ;;
           esac
+
+          # Guard: a green run must carry flashable firmware.
+          if [ ! -f "$OUT/firmware.bin" ] && [ ! -f "$OUT/firmware.hex" ] && [ ! -f "$OUT/merged-firmware.bin" ]; then
+            echo "::error::no firmware file (firmware.bin / firmware.hex / merged-firmware.bin) in $OUT for env '$ENV'"; exit 1
+          fi
 
           # Drop the generated Plugins.config.h into the artifact (when
           # plugins were bundled) so the configurator can show users exactly
@@ -404,7 +428,7 @@ jobs:
 
           cat > "$OUT/manifest.json" <<EOF
           {
-            "request_id": "${{ inputs.request_id }}",
+            "request_id": "$REQUEST_ID",
             "environment": "$ENV",
             "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "ram_used": ${RAM_USED:-null},
