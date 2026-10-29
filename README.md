@@ -21,7 +21,6 @@ uploads the firmware as a workflow artifact that the browser then downloads.
 | `f446_fysetc_s6`  | STM32F446VE   | **FYSETC_S6** (V1.2 + V2.0)          |
 | `skr_pro_f407`    | STM32F407ZGT6 | **BTT_SKR_PRO** (V1.2)               |
 | `shc_esp32`       | ESP32         | SmartHandController                  |
-| `shc_teensy32`    | Teensy 3.2    | SmartHandController                  |
 | `shc_teensy40`    | Teensy 4.0    | SmartHandController                  |
 | `sws_esp32`       | ESP32         | SmartWebServer                       |
 | `sws_esp8266`     | ESP8266       | SmartWebServer                       |
@@ -46,7 +45,7 @@ pio run -e esp32
 - `config_h` — base64-encoded `Config.h` (≤ 64KB after base64)
 - `environment` — a PlatformIO env from `platformio.ini`: `esp32`, `teensy32`,
   `teensy40`, `teensy41`, `blackpill_f411`, `f446_fysetc_s6`, `skr_pro_f407`
-  (onstepx); `shc_esp32`, `shc_teensy40`, `shc_teensy32` (shc); `sws_esp32`,
+  (onstepx); `shc_esp32`, `shc_teensy40` (shc); `sws_esp32`,
   `sws_esp8266` (sws)
 - `request_id` — UUID set by the caller so results can be correlated
 - `onstepx_ref` — branch / tag / SHA of the chosen upstream repo (default `main`)

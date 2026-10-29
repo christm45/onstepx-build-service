@@ -14,7 +14,7 @@ on:
         description: "Base64-encoded Config.h contents"
         required: true
       environment:
-        description: "PlatformIO env. OnStepX: esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407. SHC: shc_esp32|shc_teensy40|shc_teensy32. SWS: sws_esp32|sws_esp8266."
+        description: "PlatformIO env. OnStepX: esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407. SHC: shc_esp32|shc_teensy40. SWS: sws_esp32|sws_esp8266."
         required: true
         default: "esp32"
       request_id:
@@ -67,7 +67,7 @@ jobs:
           esac
           case "$PIO_ENV" in
             esp32|teensy32|teensy40|teensy41|blackpill_f411|f446_fysetc_s6|skr_pro_f407) ;;
-            shc_esp32|shc_teensy40|shc_teensy32) ;;
+            shc_esp32|shc_teensy40) ;;
             sws_esp32|sws_esp8266) ;;
             *) echo "::error::unsupported environment '$PIO_ENV'"; exit 1 ;;
           esac
@@ -379,7 +379,7 @@ jobs:
                 cp "$BUILD_DIR/merged-firmware.bin" "$OUT/merged-firmware.bin"
               fi
               ;;
-            teensy32|teensy40|teensy41|shc_teensy40|shc_teensy32)
+            teensy32|teensy40|teensy41|shc_teensy40)
               cp "$BUILD_DIR/firmware.hex" "$OUT/firmware.hex"
               ;;
             sws_esp8266|blackpill_f411|f446_fysetc_s6|skr_pro_f407)
